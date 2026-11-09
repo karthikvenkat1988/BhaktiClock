@@ -37,6 +37,22 @@ public final class Store {
         prefs(c).edit().putString(KEY, a.toString()).commit();
     }
 
+    public static String speakerName(Context c) {
+        return prefs(c).getString("speaker_name", "");
+    }
+
+    public static String speakerAddress(Context c) {
+        return prefs(c).getString("speaker_addr", "");
+    }
+
+    public static void setSpeaker(Context c, String name, String address) {
+        prefs(c).edit().putString("speaker_name", name).putString("speaker_addr", address).commit();
+    }
+
+    public static boolean hasSpeaker(Context c) {
+        return !speakerName(c).isEmpty() || !speakerAddress(c).isEmpty();
+    }
+
     public static synchronized Schedule find(Context c, String id) {
         if (id == null) return null;
         for (Schedule s : all(c)) if (s.id.equals(id)) return s;

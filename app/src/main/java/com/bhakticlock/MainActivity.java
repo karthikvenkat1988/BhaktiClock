@@ -4,6 +4,9 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.TimePickerDialog;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
@@ -36,6 +39,7 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 public class MainActivity extends Activity {
     private static final int PICK_AUDIO = 42;
@@ -90,10 +94,16 @@ public class MainActivity extends Activity {
         addWarnings();
 
         boolean bt = PlaybackService.isBluetoothAudioConnected(this);
-        TextView btLine = text((bt ? "● Bluetooth speaker connected" : "○ No Bluetooth speaker connected right now"),
+        String spName = Store.speakerName(this);
+        String which = spName.isEmpty() ? "Bluetooth speaker" : spName;
+        TextView btLine = text((bt ? "\u25CF " + which + " connected" : "\u25CB " + which + " not connected right now"),
                 14, bt ? 0xFF15803D : 0xFFB91C1C);
         btLine.setPadding(0, dp(12), 0, dp(4));
         root.addView(btLine);
+
+        Button speakerBtn = button("Speaker: " + (spName.isEmpty() ? "any Bluetooth speaker" : spName) + "  (change)");
+        speakerBtn.setOnClickListener(v -> chooseSpeaker());
+        root.addView(speakerBtn);
 
         LinearLayout actions = row();
         Button add = button("+ Add schedule");
@@ -127,6 +137,10 @@ public class MainActivity extends Activity {
             root.addView(warning("Allow \"Display over other apps\" so the music app can open by itself at the set time.", () ->
                     open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                             Uri.parse("package:" + getPackageName())))));
+        }
+        if (needsOverlay && !PlaybackService.notificationAccess(this)) {
+            root.addView(warning("Allow \"Notification access\" so Play can be pressed in the music app for you.", () ->
+                    open(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))));
         }
         PowerManager pm = getSystemService(PowerManager.class);
         if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
@@ -422,6 +436,53 @@ public class MainActivity extends Activity {
             draft.names.add(displayName(u));
         }
         refreshDraftFiles();
+    }
+
+    private void chooseSpeaker() {
+        if (Build.VERSION.SDK_INT >= 31
+                && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 2);
+            return;
+        }
+        BluetoothAdapter ad = getSystemService(BluetoothManager.class).getAdapter();
+        if (ad == null) {
+            toast("This phone has no Bluetooth");
+            return;
+        }
+        final List<String[]> items = new ArrayList<>(); // {name, address}
+        items.add(new String[]{"", ""});
+        try {
+            Set<BluetoothDevice> bonded = ad.getBondedDevices();
+            for (BluetoothDevice d : bonded) {
+                String n = d.getName();
+                items.add(new String[]{n == null ? d.getAddress() : n, d.getAddress()});
+            }
+        } catch (SecurityException e) {
+            toast("Allow Bluetooth access first");
+            return;
+        }
+        if (items.size() == 1) {
+            toast("No paired speakers. Pair your speaker in the phone's Bluetooth settings first.");
+            return;
+        }
+        String[] labels = new String[items.size()];
+        labels[0] = "Any Bluetooth speaker";
+        for (int i = 1; i < labels.length; i++) labels[i] = items.get(i)[0];
+        new AlertDialog.Builder(this)
+                .setTitle("Choose your speaker")
+                .setItems(labels, (d, which) -> {
+                    Store.setSpeaker(this, items.get(which)[0], items.get(which)[1]);
+                    render();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code == 2 && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) chooseSpeaker();
+        else render();
     }
 
     private void pickApp(Runnable done) {

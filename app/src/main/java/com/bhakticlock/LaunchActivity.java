@@ -17,11 +17,17 @@ import android.widget.Toast;
  * opens the music app or link, then closes itself.
  */
 public class LaunchActivity extends Activity {
+    static final String YT_MUSIC = "com.google.android.apps.youtube.music";
 
     public static Intent targetIntent(Context c, Schedule s) {
         Intent i = null;
         if (Schedule.MODE_LINK.equals(s.mode)) {
             i = new Intent(Intent.ACTION_VIEW, Uri.parse(s.link.trim()));
+            String host = i.getData() == null ? null : i.getData().getHost();
+            if (host != null && host.contains("music.youtube.com")
+                    && c.getPackageManager().getLaunchIntentForPackage(YT_MUSIC) != null) {
+                i.setPackage(YT_MUSIC); // open in the app, not the browser
+            }
         } else if (Schedule.MODE_APP.equals(s.mode)) {
             i = c.getPackageManager().getLaunchIntentForPackage(s.appPackage);
         }

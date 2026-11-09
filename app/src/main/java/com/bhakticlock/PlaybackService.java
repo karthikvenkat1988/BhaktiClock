@@ -5,7 +5,14 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
+import android.provider.Settings;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
@@ -53,17 +60,34 @@ public class PlaybackService extends Service {
         }
     }
 
-    public static boolean isBluetoothAudioConnected(Context c) {
+    private static boolean isBtOutput(AudioDeviceInfo d) {
+        int t = d.getType();
+        return t == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                || t == AudioDeviceInfo.TYPE_BLE_SPEAKER
+                || t == AudioDeviceInfo.TYPE_BLE_HEADSET;
+    }
+
+    /** The connected Bluetooth speaker: the chosen one if a speaker was chosen, otherwise any. */
+    public static AudioDeviceInfo findSpeaker(Context c) {
         AudioManager am = c.getSystemService(AudioManager.class);
+        String addr = Store.speakerAddress(c);
+        String name = Store.speakerName(c);
         for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
-            int t = d.getType();
-            if (t == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                    || t == AudioDeviceInfo.TYPE_BLE_SPEAKER
-                    || t == AudioDeviceInfo.TYPE_BLE_HEADSET) {
-                return true;
-            }
+            if (!isBtOutput(d)) continue;
+            if (addr.isEmpty() && name.isEmpty()) return d;
+            if (Build.VERSION.SDK_INT >= 28 && !addr.isEmpty() && addr.equalsIgnoreCase(d.getAddress())) return d;
+            if (!name.isEmpty() && name.equals(String.valueOf(d.getProductName()))) return d;
         }
-        return false;
+        return null;
+    }
+
+    public static boolean isBluetoothAudioConnected(Context c) {
+        return findSpeaker(c) != null;
+    }
+
+    public static boolean notificationAccess(Context c) {
+        String enabled = Settings.Secure.getString(c.getContentResolver(), "enabled_notification_listeners");
+        return enabled != null && enabled.contains(c.getPackageName());
     }
 
     @Override
@@ -102,12 +126,38 @@ public class PlaybackService extends Service {
 
     private void waitForSpeaker() {
         if (current == null) return;
-        if (isBluetoothAudioConnected(this) || waitedSec >= MAX_WAIT_SEC) {
+        boolean specific = Store.hasSpeaker(this);
+        int limit = specific ? 90 : MAX_WAIT_SEC;
+        if (findSpeaker(this) != null) {
             startPlayback();
+            return;
+        }
+        if (waitedSec >= limit) {
+            if (specific) {
+                String n = Store.speakerName(this);
+                notifyMessage("Music skipped",
+                        (n.isEmpty() ? "Your speaker" : n) + " wasn't connected. Switch it on, then tap Play now.");
+                stopEverything();
+            } else {
+                startPlayback();
+            }
             return;
         }
         waitedSec += 2;
         handler.postDelayed(this::waitForSpeaker, 2000);
+    }
+
+    private void notifyMessage(String title, String text) {
+        PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        getSystemService(NotificationManager.class).notify(NOTIF_ID + 2,
+                new Notification.Builder(this, CHANNEL)
+                        .setSmallIcon(android.R.drawable.stat_sys_warning)
+                        .setContentTitle(title)
+                        .setContentText(text)
+                        .setContentIntent(open)
+                        .setAutoCancel(true)
+                        .build());
     }
 
     private void startPlayback() {
@@ -128,9 +178,11 @@ public class PlaybackService extends Service {
 
     // ---- "open a music app / link" mode ------------------------------------------
 
+    private String targetPackage;
+
     private void launchExternal() {
         final Schedule s = current;
-        updateNotification(s.title(), "Opening " + (Schedule.MODE_APP.equals(s.mode) ? s.appName : "link") + "\u2026");
+        updateNotification(s.title(), "Opening " + (Schedule.MODE_APP.equals(s.mode) ? s.appName : "link") + "...");
 
         Intent launch = new Intent(this, LaunchActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -159,16 +211,74 @@ public class PlaybackService extends Service {
         } catch (Exception ignored) {
         }
 
-        // Press Play a few times: apps take a while to load, and PLAY (unlike play/pause)
-        // does nothing if the music is already running.
-        int[] delays = {8000, 15000, 25000};
-        for (int d : delays) handler.postDelayed(() -> sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY), d);
+        // Which app should we press Play in?
+        targetPackage = null;
+        if (Schedule.MODE_APP.equals(s.mode)) {
+            targetPackage = s.appPackage;
+        } else {
+            Intent t = LaunchActivity.targetIntent(this, s);
+            if (t != null) {
+                if (t.getPackage() != null) {
+                    targetPackage = t.getPackage();
+                } else {
+                    ResolveInfo ri = getPackageManager().resolveActivity(t, PackageManager.MATCH_DEFAULT_ONLY);
+                    if (ri != null && ri.activityInfo != null && !"android".equals(ri.activityInfo.packageName)) {
+                        targetPackage = ri.activityInfo.packageName;
+                    }
+                }
+            }
+        }
 
-        long end = s.stopAfterMin > 0 ? s.stopAfterMin * 60_000L : 40_000L;
-        handler.postDelayed(() -> {
-            if (s.stopAfterMin > 0) sendMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE);
-            stopEverything();
-        }, end);
+        handler.postDelayed(() -> pollPlay(0), 6000);
+
+        if (s.stopAfterMin > 0) {
+            handler.postDelayed(() -> {
+                MediaController mc = findController();
+                if (mc != null) mc.getTransportControls().pause();
+                else sendMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE);
+                stopEverything();
+            }, s.stopAfterMin * 60_000L);
+        }
+    }
+
+    /** The music app's media session, if we have notification access and the app has one running. */
+    private MediaController findController() {
+        if (!notificationAccess(this)) return null;
+        try {
+            MediaSessionManager msm = getSystemService(MediaSessionManager.class);
+            List<MediaController> list = msm.getActiveSessions(new ComponentName(this, MediaListener.class));
+            for (MediaController mc : list) {
+                if (targetPackage == null || targetPackage.equals(mc.getPackageName())) return mc;
+            }
+        } catch (SecurityException ignored) {
+        }
+        return null;
+    }
+
+    /** Presses Play in the music app every 3 seconds until it is actually playing (max ~1 minute). */
+    private void pollPlay(final int attempt) {
+        final Schedule s = current;
+        if (s == null) return;
+        MediaController mc = findController();
+        if (mc != null) {
+            PlaybackState st = mc.getPlaybackState();
+            if (st != null && st.getState() == PlaybackState.STATE_PLAYING) {
+                updateNotification(s.title(), "Playing");
+                if (s.stopAfterMin <= 0) handler.postDelayed(this::stopEverything, 3000);
+                return;
+            }
+            mc.getTransportControls().play();
+        } else if (attempt % 3 == 2) {
+            // No session found (or no notification access): fall back to a general Play key press.
+            sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY);
+        }
+        if (attempt >= 20) {
+            notifyMessage("Music didn't start",
+                    s.title() + " opened but did not start playing. Open it and press Play.");
+            if (s.stopAfterMin <= 0) stopEverything();
+            return;
+        }
+        handler.postDelayed(() -> pollPlay(attempt + 1), 3000);
     }
 
     private void sendMediaKey(int code) {
@@ -193,6 +303,10 @@ public class PlaybackService extends Service {
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build());
+            if (Build.VERSION.SDK_INT >= 28 && Store.hasSpeaker(this)) {
+                AudioDeviceInfo dev = findSpeaker(this);
+                if (dev != null) mp.setPreferredDevice(dev);
+            }
             mp.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
             mp.setDataSource(this, Uri.parse(current.uris.get(idx)));
             mp.setOnPreparedListener(MediaPlayer::start);

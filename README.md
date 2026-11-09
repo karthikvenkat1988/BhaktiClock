@@ -27,6 +27,17 @@ For "Music app" and "Link", allow **Display over other apps** when the app asks 
 the phone's screen lock to **None** or **Swipe**, otherwise Android keeps a locked phone from opening apps.
 You can also set a "pause after N minutes" timer.
 
+## Choosing your speaker
+
+Tap **Speaker: ... (change)** on the main screen and pick your speaker from the paired list.
+At play time the app waits up to 90 seconds for that speaker. If it never connects, nothing plays
+on the phone's own speaker; you get a "Music skipped" notification instead.
+Android reconnects a paired speaker by itself when the speaker is switched on; apps can't force it.
+
+For Music app and Link schedules, also allow **Notification access** (yellow banner). It lets the app
+press Play inside YouTube Music specifically and confirm the music really started. If it didn't
+start within about a minute, you get a "Music didn't start" notification.
+
 ## Build it (pick one)
 
 ### Option A: GitHub, free, nothing to install
