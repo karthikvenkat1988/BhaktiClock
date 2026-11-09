@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.BhaktiClock" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">#FFC2410C</item>
+        <item name="colorOnPrimary">#FFFFFFFF</item>
+        <item name="colorPrimaryContainer">#FFFFEDD5</item>
+        <item name="colorOnPrimaryContainer">#FF7C2D12</item>
+        <item name="colorSecondary">#FFB45309</item>
+        <item name="colorSecondaryContainer">#FFFEF3C7</item>
+        <item name="colorOnSecondaryContainer">#FF78350F</item>
+        <item name="colorSurface">#FFFFFBF5</item>
+        <item name="android:colorBackground">#FFFFF8F0</item>
+        <item name="android:statusBarColor">#FF7C2D12</item>
+        <item name="android:navigationBarColor">#FFFFF8F0</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

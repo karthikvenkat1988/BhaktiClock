@@ -47,6 +47,10 @@ public class PlaybackService extends Service {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<Integer> order = new ArrayList<>();
+    /** Read by the main screen to show a live "Now playing" state. */
+    public static volatile String playingId;
+    public static volatile String statusText = "";
+
     private MediaPlayer player;
     private Schedule current;
     private int pos;
@@ -116,6 +120,7 @@ public class PlaybackService extends Service {
         handler.removeCallbacksAndMessages(null);
         releasePlayer();
         current = s;
+        playingId = s.id;
         order.clear();
         for (int i = 0; i < s.uris.size(); i++) order.add(i);
         if (s.shuffle) Collections.shuffle(order);
@@ -349,12 +354,14 @@ public class PlaybackService extends Service {
         handler.removeCallbacksAndMessages(null);
         releasePlayer();
         current = null;
+        playingId = null;
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
     }
 
     @Override
     public void onDestroy() {
+        playingId = null;
         handler.removeCallbacksAndMessages(null);
         releasePlayer();
         super.onDestroy();
@@ -367,7 +374,7 @@ public class PlaybackService extends Service {
         PendingIntent stop = PendingIntent.getService(this, 1,
                 new Intent(this, PlaybackService.class).setAction(ACTION_STOP), f);
         return new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setSmallIcon(R.drawable.ic_stat_diya)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setContentIntent(open)
@@ -388,6 +395,7 @@ public class PlaybackService extends Service {
     }
 
     private void updateNotification(String title, String text) {
+        statusText = text;
         getSystemService(NotificationManager.class).notify(NOTIF_ID, build(title, text));
     }
 }

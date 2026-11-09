@@ -29,9 +29,10 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@android:drawable/ic_lock_idle_alarm"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="Bhakti Clock"
-        android:theme="@android:style/Theme.Material.Light.DarkActionBar">
+        android:theme="@style/Theme.BhaktiClock">
 
         <activity
             android:name=".MainActivity"

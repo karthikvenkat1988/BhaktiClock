@@ -26,4 +26,7 @@ android {
     }
 }
 
-// No external libraries: the app uses only the built-in Android framework.
+dependencies {
+    // Google's Material Design components: cards, clock-face time picker, chips, sliders, bottom sheets
+    implementation 'com.google.android.material:material:1.12.0'
+}
