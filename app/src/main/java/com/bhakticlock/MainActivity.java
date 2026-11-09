@@ -94,14 +94,14 @@ public class MainActivity extends Activity {
         addWarnings();
 
         boolean bt = PlaybackService.isBluetoothAudioConnected(this);
-        String spName = Store.speakerName(this);
+        String spName = Store.speakerLabel(this);
         String which = spName.isEmpty() ? "Bluetooth speaker" : spName;
         TextView btLine = text((bt ? "\u25CF " + which + " connected" : "\u25CB " + which + " not connected right now"),
                 14, bt ? 0xFF15803D : 0xFFB91C1C);
         btLine.setPadding(0, dp(12), 0, dp(4));
         root.addView(btLine);
 
-        Button speakerBtn = button("Speaker: " + (spName.isEmpty() ? "any Bluetooth speaker" : spName) + "  (change)");
+        Button speakerBtn = button("Speakers: " + (spName.isEmpty() ? "any Bluetooth speaker" : spName) + "  (change)");
         speakerBtn.setOnClickListener(v -> chooseSpeaker());
         root.addView(speakerBtn);
 
@@ -450,7 +450,6 @@ public class MainActivity extends Activity {
             return;
         }
         final List<String[]> items = new ArrayList<>(); // {name, address}
-        items.add(new String[]{"", ""});
         try {
             Set<BluetoothDevice> bonded = ad.getBondedDevices();
             for (BluetoothDevice d : bonded) {
@@ -461,17 +460,29 @@ public class MainActivity extends Activity {
             toast("Allow Bluetooth access first");
             return;
         }
-        if (items.size() == 1) {
+        if (items.isEmpty()) {
             toast("No paired speakers. Pair your speaker in the phone's Bluetooth settings first.");
             return;
         }
+        Collections.sort(items, (x, y) -> x[0].compareToIgnoreCase(y[0]));
+        List<String[]> current = Store.speakers(this);
         String[] labels = new String[items.size()];
-        labels[0] = "Any Bluetooth speaker";
-        for (int i = 1; i < labels.length; i++) labels[i] = items.get(i)[0];
+        final boolean[] checked = new boolean[items.size()];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = items.get(i)[0];
+            for (String[] c : current) {
+                if (c[1].equalsIgnoreCase(items.get(i)[1]) || c[0].equals(items.get(i)[0])) checked[i] = true;
+            }
+        }
         new AlertDialog.Builder(this)
-                .setTitle("Choose your speaker")
-                .setItems(labels, (d, which) -> {
-                    Store.setSpeaker(this, items.get(which)[0], items.get(which)[1]);
+                .setTitle("Which speakers can play?")
+                .setMultiChoiceItems(labels, checked, (d, which, on) -> checked[which] = on)
+                .setPositiveButton("Save", (d, w) -> {
+                    List<String[]> chosen = new ArrayList<>();
+                    for (int i = 0; i < checked.length; i++) if (checked[i]) chosen.add(items.get(i));
+                    Store.setSpeakers(this, chosen);
+                    toast(chosen.isEmpty() ? "Any Bluetooth speaker will be used"
+                            : "Will wait up to 2 minutes for " + Store.speakerLabel(this) + ", then play on the phone");
                     render();
                 })
                 .setNegativeButton("Cancel", null)

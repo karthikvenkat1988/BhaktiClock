@@ -67,16 +67,18 @@ public class PlaybackService extends Service {
                 || t == AudioDeviceInfo.TYPE_BLE_HEADSET;
     }
 
-    /** The connected Bluetooth speaker: the chosen one if a speaker was chosen, otherwise any. */
+    /** A connected Bluetooth speaker: one of the chosen ones if any were chosen, otherwise any. */
     public static AudioDeviceInfo findSpeaker(Context c) {
         AudioManager am = c.getSystemService(AudioManager.class);
-        String addr = Store.speakerAddress(c);
-        String name = Store.speakerName(c);
+        List<String[]> allowed = Store.speakers(c);
         for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
             if (!isBtOutput(d)) continue;
-            if (addr.isEmpty() && name.isEmpty()) return d;
-            if (Build.VERSION.SDK_INT >= 28 && !addr.isEmpty() && addr.equalsIgnoreCase(d.getAddress())) return d;
-            if (!name.isEmpty() && name.equals(String.valueOf(d.getProductName()))) return d;
+            if (allowed.isEmpty()) return d;
+            for (String[] sp : allowed) {
+                String name = sp[0], addr = sp[1];
+                if (Build.VERSION.SDK_INT >= 28 && !addr.isEmpty() && addr.equalsIgnoreCase(d.getAddress())) return d;
+                if (!name.isEmpty() && name.equals(String.valueOf(d.getProductName()))) return d;
+            }
         }
         return null;
     }
@@ -124,24 +126,28 @@ public class PlaybackService extends Service {
         return START_NOT_STICKY;
     }
 
+    /** How long to wait for one of the chosen speakers before playing on the phone instead. */
+    private static final int SPEAKER_WAIT_SEC = 120;
+
     private void waitForSpeaker() {
         if (current == null) return;
         boolean specific = Store.hasSpeaker(this);
-        int limit = specific ? 90 : MAX_WAIT_SEC;
+        int limit = specific ? SPEAKER_WAIT_SEC : MAX_WAIT_SEC;
         if (findSpeaker(this) != null) {
             startPlayback();
             return;
         }
         if (waitedSec >= limit) {
             if (specific) {
-                String n = Store.speakerName(this);
-                notifyMessage("Music skipped",
-                        (n.isEmpty() ? "Your speaker" : n) + " wasn't connected. Switch it on, then tap Play now.");
-                stopEverything();
-            } else {
-                startPlayback();
+                notifyMessage("Playing on the phone",
+                        Store.speakerLabel(this) + " didn't connect within 2 minutes, so the music is playing on the phone's speaker.");
             }
+            startPlayback(); // no speaker: Android plays through the phone itself
             return;
+        }
+        if (waitedSec % 10 == 0) {
+            updateNotification(current.title(), "Waiting for " + (specific ? Store.speakerLabel(this) : "the speaker")
+                    + " (" + (limit - waitedSec) + "s)");
         }
         waitedSec += 2;
         handler.postDelayed(this::waitForSpeaker, 2000);

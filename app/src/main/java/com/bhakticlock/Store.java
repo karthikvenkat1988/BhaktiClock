@@ -37,20 +37,43 @@ public final class Store {
         prefs(c).edit().putString(KEY, a.toString()).commit();
     }
 
-    public static String speakerName(Context c) {
-        return prefs(c).getString("speaker_name", "");
+    /** The speakers the user allowed, as {name, address} pairs. Empty = any Bluetooth speaker. */
+    public static List<String[]> speakers(Context c) {
+        List<String[]> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(prefs(c).getString("speakers", "[]"));
+            for (int i = 0; i < a.length(); i++) {
+                JSONArray p = a.getJSONArray(i);
+                out.add(new String[]{p.optString(0), p.optString(1)});
+            }
+        } catch (JSONException ignored) {
+        }
+        return out;
     }
 
-    public static String speakerAddress(Context c) {
-        return prefs(c).getString("speaker_addr", "");
-    }
-
-    public static void setSpeaker(Context c, String name, String address) {
-        prefs(c).edit().putString("speaker_name", name).putString("speaker_addr", address).commit();
+    public static void setSpeakers(Context c, List<String[]> list) {
+        JSONArray a = new JSONArray();
+        for (String[] sp : list) {
+            JSONArray p = new JSONArray();
+            p.put(sp[0]);
+            p.put(sp[1]);
+            a.put(p);
+        }
+        prefs(c).edit().putString("speakers", a.toString()).commit();
     }
 
     public static boolean hasSpeaker(Context c) {
-        return !speakerName(c).isEmpty() || !speakerAddress(c).isEmpty();
+        return !speakers(c).isEmpty();
+    }
+
+    /** e.g. "Stone 350 Pro or Stone 352", or "" when any speaker is allowed. */
+    public static String speakerLabel(Context c) {
+        StringBuilder sb = new StringBuilder();
+        for (String[] sp : speakers(c)) {
+            if (sb.length() > 0) sb.append(" or ");
+            sb.append(sp[0]);
+        }
+        return sb.toString();
     }
 
     public static synchronized Schedule find(Context c, String id) {
