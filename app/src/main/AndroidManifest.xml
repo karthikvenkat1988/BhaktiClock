@@ -2,8 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Fire at the exact minute, even in deep sleep -->
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- Re-arm schedules after the phone restarts -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Keep the CPU awake while music plays -->

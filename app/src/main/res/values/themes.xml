@@ -10,8 +10,8 @@
         <item name="colorOnSecondaryContainer">#FF78350F</item>
         <item name="colorSurface">#FFFFFBF5</item>
         <item name="android:colorBackground">#FFFFF8F0</item>
-        <item name="android:statusBarColor">#FF7C2D12</item>
-        <item name="android:navigationBarColor">#FFFFF8F0</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

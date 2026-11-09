@@ -4,19 +4,34 @@ plugins {
 
 android {
     namespace 'com.bhakticlock'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
-        applicationId "com.bhakticlock"
+        applicationId "com.karthikvenkat.bhakticlock"
         minSdk 26          // Android 8.0 and newer
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        targetSdk 36   // Google Play requires Android 16 for new apps
+        versionCode 2
+        versionName "1.1"
+    }
+
+    // Release signing for Google Play. The key is never stored in the repository:
+    // the GitHub build reads it from repository secrets (see store/PLAY_STORE_GUIDE.md).
+    signingConfigs {
+        release {
+            def ks = System.getenv("BC_KEYSTORE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("BC_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("BC_KEY_ALIAS") ?: "upload"
+                keyPassword System.getenv("BC_KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            if (System.getenv("BC_KEYSTORE")) signingConfig signingConfigs.release
         }
     }
 

@@ -43,6 +43,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -108,6 +113,7 @@ public class MainActivity extends AppCompatActivity {
     private String lastPlayingId = "";
     private boolean lastBt;
     private boolean animateEntrance = true;
+    private int insetTop, insetBottom;
 
     // Schedule being edited in the bottom sheet
     private Schedule draft;
@@ -146,6 +152,25 @@ public class MainActivity extends AppCompatActivity {
         flp.setMargins(0, 0, dp(20), dp(24));
         root.addView(fab, flp);
         setContentView(root);
+
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        WindowInsetsControllerCompat bars = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        bars.setAppearanceLightStatusBars(false);
+        bars.setAppearanceLightNavigationBars(true);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            Insets sb = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            if (sb.top != insetTop || sb.bottom != insetBottom) {
+                insetTop = sb.top;
+                insetBottom = sb.bottom;
+                content.setPadding(0, 0, 0, dp(112) + insetBottom);
+                FrameLayout.LayoutParams fp = (FrameLayout.LayoutParams) fab.getLayoutParams();
+                fp.bottomMargin = dp(24) + insetBottom;
+                fp.rightMargin = dp(20) + sb.right;
+                fab.setLayoutParams(fp);
+                render();
+            }
+            return insets;
+        });
 
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -262,7 +287,7 @@ public class MainActivity extends AppCompatActivity {
         float r = dp(34);
         g.setCornerRadii(new float[]{0, 0, 0, 0, r, r, r, r});
         h.setBackground(g);
-        h.setPadding(dp(24), dp(18), dp(20), dp(26));
+        h.setPadding(dp(24), dp(18) + insetTop, dp(20), dp(26));
 
         LinearLayout col = vertical();
         col.setPadding(0, 0, dp(84), 0);
@@ -292,7 +317,8 @@ public class MainActivity extends AppCompatActivity {
         col.addView(nextText, nlp);
 
         h.addView(col, new FrameLayout.LayoutParams(-1, -2));
-        h.addView(diya(), new FrameLayout.LayoutParams(dp(96), dp(116), Gravity.END | Gravity.TOP));
+        FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(dp(96), dp(116), Gravity.END | Gravity.TOP);
+        h.addView(diya(), dlp);
         return h;
     }
 

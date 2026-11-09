@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -15,7 +17,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Build
+      - name: Build APK (to install directly on a phone)
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
@@ -24,3 +26,18 @@ jobs:
         with:
           name: BhaktiClock-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Only runs once the upload key has been added as repository secrets.
+      - name: Build signed release bundle (for Google Play)
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        env:
+          BC_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          BC_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        with:
+          name: BhaktiClock-play-bundle
+          path: app/build/outputs/bundle/release/app-release.aab
