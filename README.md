@@ -14,6 +14,19 @@ no account, no internet needed, no third-party libraries.
 - Re-arms all schedules after a reboot or a clock/time-zone change.
 - A "Now playing" notification with a Stop button; "Play now" to test any schedule.
 
+## Three ways to play
+
+Each schedule can use one of:
+
+- **Audio file**: plays MP3/M4A files from the phone. The most reliable choice.
+- **Music app**: at the set time the app you choose (YouTube Music, Spotify, JioSaavn, ...) is opened
+  and Play is pressed for you. Leave the app on the song or playlist you want.
+- **Link**: opens a song or playlist link (for example YouTube Music: Share, Copy link) and presses Play.
+
+For "Music app" and "Link", allow **Display over other apps** when the app asks (yellow banner), and set
+the phone's screen lock to **None** or **Swipe**, otherwise Android keeps a locked phone from opening apps.
+You can also set a "pause after N minutes" timer.
+
 ## Build it (pick one)
 
 ### Option A: GitHub, free, nothing to install

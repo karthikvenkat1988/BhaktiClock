@@ -24,6 +24,30 @@ public class Schedule {
     public boolean shuffle = false;
     public boolean enabled = true;
 
+    /** What to play: "files" (audio files on the phone), "link" (open a URL in its app), "app" (open an app and press Play). */
+    public String mode = MODE_FILES;
+    public String link = "";
+    public String appPackage = "";
+    public String appName = "";
+    /** For link/app mode: pause the music after this many minutes (0 = let it run). */
+    public int stopAfterMin = 0;
+
+    public static final String MODE_FILES = "files";
+    public static final String MODE_LINK = "link";
+    public static final String MODE_APP = "app";
+
+    public boolean hasSource() {
+        if (MODE_LINK.equals(mode)) return link != null && !link.trim().isEmpty();
+        if (MODE_APP.equals(mode)) return appPackage != null && !appPackage.isEmpty();
+        return !uris.isEmpty();
+    }
+
+    public String sourceText() {
+        if (MODE_LINK.equals(mode)) return "Opens link: " + link;
+        if (MODE_APP.equals(mode)) return "Opens " + appName + " and presses Play";
+        return names.isEmpty() ? "No audio chosen" : "\u266A " + String.join("\n\u266A ", names);
+    }
+
     public int requestCode() {
         return id.hashCode();
     }
@@ -35,6 +59,8 @@ public class Schedule {
 
     public String title() {
         if (label != null && !label.trim().isEmpty()) return label.trim();
+        if (MODE_APP.equals(mode) && !appName.isEmpty()) return appName;
+        if (MODE_LINK.equals(mode)) return "Music link";
         if (!names.isEmpty()) return names.get(0);
         return "Music";
     }
@@ -82,6 +108,11 @@ public class Schedule {
             o.put("volume", volume);
             o.put("shuffle", shuffle);
             o.put("enabled", enabled);
+            o.put("mode", mode);
+            o.put("link", link);
+            o.put("appPackage", appPackage);
+            o.put("appName", appName);
+            o.put("stopAfterMin", stopAfterMin);
         } catch (JSONException e) {
             throw new RuntimeException(e);
         }
@@ -105,6 +136,11 @@ public class Schedule {
         s.volume = o.optInt("volume", 70);
         s.shuffle = o.optBoolean("shuffle", false);
         s.enabled = o.optBoolean("enabled", true);
+        s.mode = o.optString("mode", MODE_FILES);
+        s.link = o.optString("link", "");
+        s.appPackage = o.optString("appPackage", "");
+        s.appName = o.optString("appName", "");
+        s.stopAfterMin = o.optInt("stopAfterMin", 0);
         return s;
     }
 

@@ -13,6 +13,7 @@ import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
+import android.view.KeyEvent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -32,6 +33,7 @@ import java.util.List;
 public class PlaybackService extends Service {
     public static final String ACTION_STOP = "com.bhakticlock.STOP";
     static final String CHANNEL = "playback";
+    static final String LAUNCH_CHANNEL = "launch";
     private static final int NOTIF_ID = 7;
     /** How long to wait for the Bluetooth speaker to (re)connect before playing anyway. */
     private static final int MAX_WAIT_SEC = 30;
@@ -80,7 +82,7 @@ public class PlaybackService extends Service {
         goForeground("Bhakti Clock", "Getting ready…");
 
         Schedule s = intent == null ? null : Store.find(this, intent.getStringExtra("id"));
-        if (s == null || s.uris.isEmpty()) {
+        if (s == null || !s.hasSource()) {
             stopEverything();
             return START_NOT_STICKY;
         }
@@ -117,7 +119,62 @@ public class PlaybackService extends Service {
         } catch (SecurityException ignored) {
             // Some phones block volume changes while Do Not Disturb is on.
         }
+        if (!Schedule.MODE_FILES.equals(current.mode)) {
+            launchExternal();
+            return;
+        }
         playCurrent();
+    }
+
+    // ---- "open a music app / link" mode ------------------------------------------
+
+    private void launchExternal() {
+        final Schedule s = current;
+        updateNotification(s.title(), "Opening " + (Schedule.MODE_APP.equals(s.mode) ? s.appName : "link") + "\u2026");
+
+        Intent launch = new Intent(this, LaunchActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra("id", s.id);
+
+        // 1) Full-screen notification: the supported way to wake the screen and open an app.
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (nm.getNotificationChannel(LAUNCH_CHANNEL) == null) {
+            nm.createNotificationChannel(new NotificationChannel(
+                    LAUNCH_CHANNEL, "Starting music", NotificationManager.IMPORTANCE_HIGH));
+        }
+        PendingIntent pi = PendingIntent.getActivity(this, 2, launch,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        nm.notify(NOTIF_ID + 1, new Notification.Builder(this, LAUNCH_CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setContentTitle("Starting " + s.title())
+                .setContentIntent(pi)
+                .setFullScreenIntent(pi, true)
+                .setAutoCancel(true)
+                .setTimeoutAfter(60000)
+                .build());
+
+        // 2) Direct start (works when "Display over other apps" is allowed).
+        try {
+            startActivity(launch);
+        } catch (Exception ignored) {
+        }
+
+        // Press Play a few times: apps take a while to load, and PLAY (unlike play/pause)
+        // does nothing if the music is already running.
+        int[] delays = {8000, 15000, 25000};
+        for (int d : delays) handler.postDelayed(() -> sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY), d);
+
+        long end = s.stopAfterMin > 0 ? s.stopAfterMin * 60_000L : 40_000L;
+        handler.postDelayed(() -> {
+            if (s.stopAfterMin > 0) sendMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE);
+            stopEverything();
+        }, end);
+    }
+
+    private void sendMediaKey(int code) {
+        AudioManager am = getSystemService(AudioManager.class);
+        am.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, code));
+        am.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, code));
     }
 
     private void playCurrent() {

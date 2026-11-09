@@ -58,7 +58,7 @@ public final class Scheduler {
         AlarmManager am = c.getSystemService(AlarmManager.class);
         PendingIntent pi = fireIntent(c, s);
         am.cancel(pi);
-        if (!s.enabled || s.uris.isEmpty()) return;
+        if (!s.enabled || !s.hasSource()) return;
         long t = nextTrigger(s);
         if (t < 0) return;
         if (canUseExact(c)) {

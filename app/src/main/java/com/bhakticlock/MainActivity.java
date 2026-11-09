@@ -8,6 +8,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -33,6 +34,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class MainActivity extends Activity {
@@ -119,6 +121,13 @@ public class MainActivity extends Activity {
                     open(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                             Uri.parse("package:" + getPackageName())))));
         }
+        boolean needsOverlay = false;
+        for (Schedule sc : Store.all(this)) if (!Schedule.MODE_FILES.equals(sc.mode)) needsOverlay = true;
+        if (needsOverlay && !Settings.canDrawOverlays(this)) {
+            root.addView(warning("Allow \"Display over other apps\" so the music app can open by itself at the set time.", () ->
+                    open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName())))));
+        }
         PowerManager pm = getSystemService(PowerManager.class);
         if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
             root.addView(warning("Turn off battery optimisation so Android never puts this app to sleep.", () ->
@@ -162,8 +171,7 @@ public class MainActivity extends Activity {
         c.addView(title);
         c.addView(text(s.daysText() + "  ·  Volume " + s.volume + "%" + (s.shuffle ? "  ·  Shuffle" : ""), 14, TEXT_DIM));
 
-        String files = s.names.isEmpty() ? "No audio chosen" : String.join("\n", s.names);
-        TextView f = text("♪ " + files.replace("\n", "\n♪ "), 14, Color.DKGRAY);
+        TextView f = text(s.sourceText(), 14, Color.DKGRAY);
         f.setPadding(0, dp(6), 0, dp(6));
         c.addView(f);
 
@@ -242,8 +250,20 @@ public class MainActivity extends Activity {
         }
         v.addView(daysRow);
 
-        v.addView(label("Music"));
-        Button pick = button("Choose audio file(s)…");
+        v.addView(label("What to play"));
+        final Button mFiles = button("Audio file");
+        final Button mApp = button("Music app");
+        final Button mLink = button("Link");
+        LinearLayout modeRow = row();
+        modeRow.addView(mFiles, weighted());
+        modeRow.addView(mApp, weighted());
+        modeRow.addView(mLink, weighted());
+        v.addView(modeRow);
+
+        // -- audio files
+        final LinearLayout filesBox = new LinearLayout(this);
+        filesBox.setOrientation(LinearLayout.VERTICAL);
+        Button pick = button("Choose audio file(s)\u2026");
         pick.setOnClickListener(x -> {
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -251,10 +271,64 @@ public class MainActivity extends Activity {
             i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
             startActivityForResult(i, PICK_AUDIO);
         });
-        v.addView(pick);
+        filesBox.addView(pick);
         draftFiles = text("", 14, Color.DKGRAY);
         refreshDraftFiles();
-        v.addView(draftFiles);
+        filesBox.addView(draftFiles);
+        v.addView(filesBox);
+
+        // -- music app
+        final LinearLayout appBox = new LinearLayout(this);
+        appBox.setOrientation(LinearLayout.VERTICAL);
+        final Button appBtn = button(draft.appName.isEmpty() ? "Choose music app\u2026" : draft.appName);
+        appBtn.setOnClickListener(x -> pickApp(() -> appBtn.setText(draft.appName)));
+        appBox.addView(appBtn);
+        appBox.addView(text("At the set time the app opens and Play is pressed for you. "
+                + "Works best when the app was last left on the song or playlist you want.", 13, TEXT_DIM));
+        v.addView(appBox);
+
+        // -- link
+        final LinearLayout linkBox = new LinearLayout(this);
+        linkBox.setOrientation(LinearLayout.VERTICAL);
+        final EditText linkField = new EditText(this);
+        linkField.setHint("Paste a song or playlist link");
+        linkField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        linkField.setText(draft.link);
+        linkBox.addView(linkField);
+        linkBox.addView(text("In YouTube Music: Share \u2192 Copy link, then paste it here. "
+                + "The link opens in the app and Play is pressed for you.", 13, TEXT_DIM));
+        v.addView(linkBox);
+
+        // -- stop timer (app/link)
+        final LinearLayout stopBox = new LinearLayout(this);
+        stopBox.setOrientation(LinearLayout.VERTICAL);
+        stopBox.addView(label("Pause the music after (minutes). Leave empty to let it play on."));
+        final EditText stopField = new EditText(this);
+        stopField.setInputType(InputType.TYPE_CLASS_NUMBER);
+        stopField.setHint("e.g. 30");
+        if (draft.stopAfterMin > 0) stopField.setText(String.valueOf(draft.stopAfterMin));
+        stopBox.addView(stopField);
+        v.addView(stopBox);
+
+        final Runnable showMode = () -> {
+            boolean f = Schedule.MODE_FILES.equals(draft.mode);
+            boolean a2 = Schedule.MODE_APP.equals(draft.mode);
+            boolean l = Schedule.MODE_LINK.equals(draft.mode);
+            filesBox.setVisibility(f ? View.VISIBLE : View.GONE);
+            appBox.setVisibility(a2 ? View.VISIBLE : View.GONE);
+            linkBox.setVisibility(l ? View.VISIBLE : View.GONE);
+            stopBox.setVisibility(f ? View.GONE : View.VISIBLE);
+            mFiles.setTypeface(null, f ? Typeface.BOLD : Typeface.NORMAL);
+            mApp.setTypeface(null, a2 ? Typeface.BOLD : Typeface.NORMAL);
+            mLink.setTypeface(null, l ? Typeface.BOLD : Typeface.NORMAL);
+            mFiles.setTextColor(f ? SAFFRON : Color.DKGRAY);
+            mApp.setTextColor(a2 ? SAFFRON : Color.DKGRAY);
+            mLink.setTextColor(l ? SAFFRON : Color.DKGRAY);
+        };
+        mFiles.setOnClickListener(x -> { draft.mode = Schedule.MODE_FILES; showMode.run(); });
+        mApp.setOnClickListener(x -> { draft.mode = Schedule.MODE_APP; showMode.run(); });
+        mLink.setOnClickListener(x -> { draft.mode = Schedule.MODE_LINK; showMode.run(); });
+        showMode.run();
 
         final TextView volLabel = label("Volume: " + draft.volume + "%");
         v.addView(volLabel);
@@ -287,8 +361,22 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Cancel", null)
                 .create();
         dialog.setOnShowListener(x -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(y -> {
-            if (draft.uris.isEmpty()) {
+            draft.link = linkField.getText().toString().trim();
+            try {
+                draft.stopAfterMin = Math.max(0, Integer.parseInt(stopField.getText().toString().trim()));
+            } catch (NumberFormatException e) {
+                draft.stopAfterMin = 0;
+            }
+            if (Schedule.MODE_FILES.equals(draft.mode) && draft.uris.isEmpty()) {
                 toast("Choose at least one audio file");
+                return;
+            }
+            if (Schedule.MODE_APP.equals(draft.mode) && draft.appPackage.isEmpty()) {
+                toast("Choose a music app");
+                return;
+            }
+            if (Schedule.MODE_LINK.equals(draft.mode) && !draft.link.startsWith("http")) {
+                toast("Paste a link starting with https://");
                 return;
             }
             if (!draft.anyDay()) {
@@ -334,6 +422,30 @@ public class MainActivity extends Activity {
             draft.names.add(displayName(u));
         }
         refreshDraftFiles();
+    }
+
+    private void pickApp(Runnable done) {
+        PackageManager pm = getPackageManager();
+        Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> apps = pm.queryIntentActivities(q, 0);
+        final List<String[]> items = new ArrayList<>(); // {label, package}
+        for (ResolveInfo r : apps) {
+            String pkg = r.activityInfo.packageName;
+            if (pkg.equals(getPackageName())) continue;
+            items.add(new String[]{String.valueOf(r.loadLabel(pm)), pkg});
+        }
+        Collections.sort(items, (x, y) -> x[0].compareToIgnoreCase(y[0]));
+        String[] labels = new String[items.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = items.get(i)[0];
+        new AlertDialog.Builder(this)
+                .setTitle("Choose music app")
+                .setItems(labels, (d, which) -> {
+                    draft.appName = items.get(which)[0];
+                    draft.appPackage = items.get(which)[1];
+                    done.run();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void refreshDraftFiles() {
