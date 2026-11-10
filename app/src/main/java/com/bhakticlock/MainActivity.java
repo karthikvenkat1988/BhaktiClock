@@ -4,6 +4,7 @@ import android.Manifest;
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
+import android.app.NotificationManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
@@ -113,6 +114,7 @@ public class MainActivity extends AppCompatActivity {
     private String lastPlayingId = "";
     private boolean lastBt;
     private boolean animateEntrance = true;
+    private boolean exactPrompted;
     private int insetTop, insetBottom;
 
     // Schedule being edited in the bottom sheet
@@ -184,6 +186,7 @@ public class MainActivity extends AppCompatActivity {
         Scheduler.rescheduleAll(this);
         animateEntrance = true;
         render();
+        promptExactAlarm();
         ui.removeCallbacks(tick);
         ui.post(tick);
     }
@@ -246,6 +249,13 @@ public class MainActivity extends AppCompatActivity {
             tip.setPadding(dp(24), dp(18), dp(24), 0);
             content.addView(tip);
         }
+
+        TextView hist = text("View history", 13, SAFFRON);
+        hist.setTypeface(Typeface.DEFAULT_BOLD);
+        hist.setGravity(Gravity.CENTER);
+        hist.setPadding(dp(24), dp(14), dp(24), dp(14));
+        hist.setOnClickListener(v -> showHistory());
+        content.addView(hist);
 
         lastPlayingId = String.valueOf(PlaybackService.playingId);
         lastBt = PlaybackService.isBluetoothAudioConnected(this);
@@ -445,6 +455,12 @@ public class MainActivity extends AppCompatActivity {
                     open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())))});
             items.add(new Object[]{"Press Play in the music app", PlaybackService.notificationAccess(this), (Runnable) () ->
                     open(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))});
+            if (Build.VERSION.SDK_INT >= 34) {
+                items.add(new Object[]{"Wake the screen to open music",
+                        getSystemService(NotificationManager.class).canUseFullScreenIntent(), (Runnable) () ->
+                        open(new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                Uri.parse("package:" + getPackageName())))});
+            }
         }
         items.add(new Object[]{"Choose your speakers", Store.hasSpeaker(this), (Runnable) this::chooseSpeaker});
 
@@ -695,6 +711,39 @@ public class MainActivity extends AppCompatActivity {
                     Snackbar.make(content, "Deleted", Snackbar.LENGTH_SHORT).setAnchorView(fab).show();
                 })
                 .setNegativeButton("Keep", null)
+                .show();
+    }
+
+    /** Without this permission Android can delay the alarm or block playback, so ask clearly. */
+    private void promptExactAlarm() {
+        if (exactPrompted || Scheduler.canUseExact(this) || Store.all(this).isEmpty()) return;
+        exactPrompted = true;
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Allow \"Alarms & reminders\"")
+                .setMessage("Without this, Android can start your music late, or not at all.\n\n"
+                        + "Tap Open settings and switch it on for this app.")
+                .setPositiveButton("Open settings", (d, w) -> open(new Intent(
+                        Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:" + getPackageName()))))
+                .setNegativeButton("Later", null)
+                .show();
+    }
+
+    private void showHistory() {
+        List<Object[]> logs = Store.logs(this);
+        if (logs.isEmpty()) {
+            toast("Nothing yet. Events show here when a schedule runs.");
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Object[] e : logs) {
+            sb.append(DateFormat.format("EEE d MMM, h:mm:ss a", (Long) e[0])).append("\n")
+                    .append((String) e[1]).append("\n\n");
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("What happened")
+                .setMessage(sb.toString().trim())
+                .setPositiveButton("Close", null)
+                .setNeutralButton("Clear", (d, w) -> Store.clearLog(this))
                 .show();
     }
 

@@ -51,6 +51,11 @@ public class PlaybackService extends Service {
     public static volatile String playingId;
     public static volatile String statusText = "";
 
+    private PowerManager.WakeLock wakeLock;
+    /** True while a music app / link is playing and we are watching it, so Stop can pause it. */
+    private boolean externalActive;
+    private int idleChecks;
+
     private MediaPlayer player;
     private Schedule current;
     private int pos;
@@ -105,6 +110,8 @@ public class PlaybackService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         ensureChannel(this);
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            if (externalActive) pauseExternal(); // also pause YouTube / the music app, not just ourselves
+            if (playingId != null) Store.log(this, "Stopped by you");
             stopEverything();
             return START_NOT_STICKY;
         }
@@ -119,6 +126,10 @@ public class PlaybackService extends Service {
 
         handler.removeCallbacksAndMessages(null);
         releasePlayer();
+        externalActive = false;
+        idleChecks = 0;
+        acquireWake(); // keep the phone awake while we wait for the speaker
+        Store.log(this, "Starting " + s.title());
         current = s;
         playingId = s.id;
         order.clear();
@@ -138,11 +149,16 @@ public class PlaybackService extends Service {
         if (current == null) return;
         boolean specific = Store.hasSpeaker(this);
         int limit = specific ? SPEAKER_WAIT_SEC : MAX_WAIT_SEC;
-        if (findSpeaker(this) != null) {
+        AudioDeviceInfo found = findSpeaker(this);
+        if (found != null) {
+            Store.log(this, "Speaker connected: " + found.getProductName()
+                    + (waitedSec > 0 ? " (after " + waitedSec + "s)" : ""));
             startPlayback();
             return;
         }
         if (waitedSec >= limit) {
+            Store.log(this, (specific ? Store.speakerLabel(this) : "No speaker")
+                    + " not connected after " + limit + "s, playing on the phone");
             if (specific) {
                 notifyMessage("Playing on the phone",
                         Store.speakerLabel(this) + " didn't connect within 2 minutes, so the music is playing on the phone's speaker.");
@@ -194,6 +210,9 @@ public class PlaybackService extends Service {
     private void launchExternal() {
         final Schedule s = current;
         updateNotification(s.title(), "Opening " + (Schedule.MODE_APP.equals(s.mode) ? s.appName : "link") + "...");
+        Store.log(this, "Opening " + (Schedule.MODE_APP.equals(s.mode) ? s.appName : "the link")
+                + (notificationAccess(this) ? "" : " (notification access is off, so Play can't be confirmed)")
+                + (Settings.canDrawOverlays(this) ? "" : " (display-over-apps is off)"));
 
         Intent launch = new Intent(this, LaunchActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -244,9 +263,8 @@ public class PlaybackService extends Service {
 
         if (s.stopAfterMin > 0) {
             handler.postDelayed(() -> {
-                MediaController mc = findController();
-                if (mc != null) mc.getTransportControls().pause();
-                else sendMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE);
+                Store.log(this, "Paused after " + s.stopAfterMin + " minutes, as set");
+                pauseExternal();
                 stopEverything();
             }, s.stopAfterMin * 60_000L);
         }
@@ -274,22 +292,57 @@ public class PlaybackService extends Service {
         if (mc != null) {
             PlaybackState st = mc.getPlaybackState();
             if (st != null && st.getState() == PlaybackState.STATE_PLAYING) {
-                updateNotification(s.title(), "Playing");
-                if (s.stopAfterMin <= 0) handler.postDelayed(this::stopEverything, 3000);
+                Store.log(this, "Music is playing");
+                updateNotification(s.title(), "Playing in the music app");
+                externalActive = true; // stay alive so the Stop button can pause it
+                idleChecks = 0;
+                handler.postDelayed(this::watchExternal, 5000);
                 return;
             }
             mc.getTransportControls().play();
+        } else if (!notificationAccess(this)) {
+            // We can't see the music app. Press Play twice, then step aside.
+            if (attempt == 0 || attempt == 3) sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY);
+            if (attempt >= 4) {
+                Store.log(this, "Pressed Play. Turn on notification access to confirm and to pause from this app");
+                if (s.stopAfterMin <= 0) stopEverything();
+                return;
+            }
         } else if (attempt % 3 == 2) {
-            // No session found (or no notification access): fall back to a general Play key press.
+            // Access is on, but the app has no media session yet: general Play key press.
             sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY);
         }
         if (attempt >= 20) {
+            Store.log(this, "The music app opened but did not start playing");
             notifyMessage("Music didn't start",
                     s.title() + " opened but did not start playing. Open it and press Play.");
             if (s.stopAfterMin <= 0) stopEverything();
             return;
         }
         handler.postDelayed(() -> pollPlay(attempt + 1), 3000);
+    }
+
+    /** While music plays in another app, keep our Now Playing state true, and finish when it stops. */
+    private void watchExternal() {
+        if (current == null || !externalActive) return;
+        MediaController mc = findController();
+        PlaybackState st = mc == null ? null : mc.getPlaybackState();
+        boolean active = st != null && (st.getState() == PlaybackState.STATE_PLAYING
+                || st.getState() == PlaybackState.STATE_BUFFERING
+                || st.getState() == PlaybackState.STATE_CONNECTING);
+        idleChecks = active ? 0 : idleChecks + 1;
+        if (idleChecks >= 3) { // about 15 seconds paused or gone: you paused it in the app, or it ended
+            Store.log(this, "Music stopped in the music app");
+            stopEverything();
+            return;
+        }
+        handler.postDelayed(this::watchExternal, 5000);
+    }
+
+    private void pauseExternal() {
+        MediaController mc = findController();
+        if (mc != null) mc.getTransportControls().pause();
+        else sendMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE);
     }
 
     private void sendMediaKey(int code) {
@@ -350,11 +403,43 @@ public class PlaybackService extends Service {
         }
     }
 
+    private void acquireWake() {
+        PowerManager pm = getSystemService(PowerManager.class);
+        if (wakeLock == null) wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bhakticlock:play");
+        if (!wakeLock.isHeld()) wakeLock.acquire(6 * 60 * 1000L);
+    }
+
+    private void releaseWake() {
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+    }
+
+    /** Shown when Android refuses to start playback by itself: one tap starts it. */
+    static void notifyTapToPlay(Context c, Schedule s) {
+        NotificationManager nm = c.getSystemService(NotificationManager.class);
+        if (nm.getNotificationChannel(LAUNCH_CHANNEL) == null) {
+            nm.createNotificationChannel(new NotificationChannel(
+                    LAUNCH_CHANNEL, "Starting music", NotificationManager.IMPORTANCE_HIGH));
+        }
+        PendingIntent pi = PendingIntent.getForegroundService(c, s.requestCode(),
+                new Intent(c, PlaybackService.class).putExtra("id", s.id),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        nm.notify(NOTIF_ID + 3, new Notification.Builder(c, LAUNCH_CHANNEL)
+                .setSmallIcon(R.drawable.ic_stat_diya)
+                .setContentTitle("Tap to play " + s.title())
+                .setContentText("Android stopped it from starting by itself. Allow \"Alarms & reminders\" in the app.")
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build());
+    }
+
     private void stopEverything() {
         handler.removeCallbacksAndMessages(null);
         releasePlayer();
+        releaseWake();
+        externalActive = false;
         current = null;
         playingId = null;
+        getSystemService(NotificationManager.class).cancel(NOTIF_ID + 1);
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
     }
@@ -364,6 +449,7 @@ public class PlaybackService extends Service {
         playingId = null;
         handler.removeCallbacksAndMessages(null);
         releasePlayer();
+        releaseWake();
         super.onDestroy();
     }
 

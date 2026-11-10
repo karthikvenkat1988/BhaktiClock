@@ -76,6 +76,36 @@ public final class Store {
         return sb.toString();
     }
 
+    /** Keeps the last 80 events ("alarm fired", "speaker connected", ...) for the History screen. */
+    public static synchronized void log(Context c, String msg) {
+        try {
+            JSONArray a = new JSONArray(prefs(c).getString("log", "[]"));
+            JSONArray n = new JSONArray();
+            for (int i = Math.max(0, a.length() - 79); i < a.length(); i++) n.put(a.get(i));
+            n.put(new JSONArray().put(System.currentTimeMillis()).put(msg));
+            prefs(c).edit().putString("log", n.toString()).apply();
+        } catch (JSONException ignored) {
+        }
+    }
+
+    /** Newest first: {Long time, String message}. */
+    public static synchronized List<Object[]> logs(Context c) {
+        List<Object[]> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(prefs(c).getString("log", "[]"));
+            for (int i = a.length() - 1; i >= 0; i--) {
+                JSONArray e = a.getJSONArray(i);
+                out.add(new Object[]{e.getLong(0), e.getString(1)});
+            }
+        } catch (JSONException ignored) {
+        }
+        return out;
+    }
+
+    public static synchronized void clearLog(Context c) {
+        prefs(c).edit().remove("log").apply();
+    }
+
     public static synchronized Schedule find(Context c, String id) {
         if (id == null) return null;
         for (Schedule s : all(c)) if (s.id.equals(id)) return s;

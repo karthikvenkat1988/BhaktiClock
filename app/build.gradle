@@ -10,8 +10,8 @@ android {
         applicationId "com.karthikvenkat.bhakticlock"
         minSdk 26          // Android 8.0 and newer
         targetSdk 36   // Google Play requires Android 16 for new apps
-        versionCode 2
-        versionName "1.1"
+        versionCode 3
+        versionName "1.2"
     }
 
     // Release signing for Google Play. The key is never stored in the repository:
