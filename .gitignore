@@ -7,3 +7,4 @@ local.properties
 *.jks
 *.keystore
 *KEEP-PRIVATE*
+!app/shared-debug.keystore

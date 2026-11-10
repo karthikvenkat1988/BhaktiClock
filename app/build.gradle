@@ -10,13 +10,21 @@ android {
         applicationId "com.karthikvenkat.bhakticlock"
         minSdk 26          // Android 8.0 and newer
         targetSdk 36   // Google Play requires Android 16 for new apps
-        versionCode 3
-        versionName "1.2"
+        versionCode 4
+        versionName "1.2.1"
     }
 
     // Release signing for Google Play. The key is never stored in the repository:
     // the GitHub build reads it from repository secrets (see store/PLAY_STORE_GUIDE.md).
     signingConfigs {
+        // One fixed key for test builds, so every new APK can be installed over the previous one.
+        // (This is only a test key with no secrets; the real Play key stays private.)
+        debug {
+            storeFile file("shared-debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
         release {
             def ks = System.getenv("BC_KEYSTORE")
             if (ks) {
